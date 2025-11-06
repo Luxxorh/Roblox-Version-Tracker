@@ -4,6 +4,7 @@ import os
 import asyncio
 import discord
 from bot import bot, version_bot
+import math
 
 app = Flask(__name__)
 
@@ -53,6 +54,9 @@ STATUS_HTML = """
             border-radius: 8px;
             text-align: center;
         }
+        .loading {
+            color: #ffa500;
+        }
     </style>
 </head>
 <body>
@@ -60,9 +64,17 @@ STATUS_HTML = """
         <h1>🤖 Roblox Version Tracker Bot</h1>
         
         <div class="status-card">
-            <h2>Bot Status: <span class="{{ 'online' else 'offline' }}">{{ "🟢 ONLINE" if bot_status else "🔴 OFFLINE" }}</span></h2>
+            <h2>Bot Status: 
+                {% if bot_status == "online" %}
+                    <span class="online">🟢 ONLINE</span>
+                {% elif bot_status == "offline" %}
+                    <span class="offline">🔴 OFFLINE</span>
+                {% else %}
+                    <span class="loading">🟡 CONNECTING...</span>
+                {% endif %}
+            </h2>
             <p><strong>Guilds Serving:</strong> {{ guild_count }}</p>
-            <p><strong>Latency:</strong> {{ latency }}ms</p>
+            <p><strong>Latency:</strong> {{ latency }}</p>
             <p><strong>Uptime:</strong> {{ uptime }}</p>
         </div>
 
@@ -106,12 +118,29 @@ def run_discord_bot():
     except Exception as e:
         print(f"❌ Discord bot error: {e}")
 
+def get_bot_status():
+    """Safely get bot status and latency"""
+    try:
+        if not bot.is_ready():
+            return "connecting", 0, 0
+        
+        # Safely handle latency (could be NaN or float)
+        latency = bot.latency
+        if latency is None or math.isnan(latency):
+            latency_ms = "Calculating..."
+        else:
+            latency_ms = f"{round(latency * 1000)}ms"
+        
+        return "online", len(bot.guilds), latency_ms
+        
+    except Exception as e:
+        print(f"Error getting bot status: {e}")
+        return "offline", 0, "Unknown"
+
 @app.route('/')
 def index():
     """Main status page"""
-    bot_status = bot.is_ready()
-    guild_count = len(bot.guilds) if bot.is_ready() else 0
-    latency = round(bot.latency * 1000) if bot.latency else 0
+    bot_status, guild_count, latency = get_bot_status()
     
     # Get version data
     versions = {}
@@ -127,9 +156,12 @@ def index():
     # Get update channel info
     update_channel = None
     if version_bot.update_channel_id:
-        channel = bot.get_channel(version_bot.update_channel_id)
-        if channel:
-            update_channel = f"#{channel.name}"
+        try:
+            channel = bot.get_channel(version_bot.update_channel_id)
+            if channel:
+                update_channel = f"#{channel.name}"
+        except:
+            update_channel = "Unknown"
 
     return render_template_string(STATUS_HTML,
         bot_status=bot_status,
@@ -138,18 +170,23 @@ def index():
         uptime="Running",
         versions=versions,
         update_channel=update_channel,
-        last_check="Active" if bot_status else "Inactive"
+        last_check="Active" if bot_status == "online" else "Inactive"
     )
 
 @app.route('/health')
 def health():
     """Health check endpoint for Render"""
-    return jsonify({
-        "status": "healthy" if bot.is_ready() else "starting",
-        "timestamp": discord.utils.utcnow().isoformat(),
-        "guilds": len(bot.guilds) if bot.is_ready() else 0,
-        "latency": round(bot.latency * 1000) if bot.latency else 0
-    })
+    bot_status, guild_count, latency = get_bot_status()
+    
+    health_data = {
+        "status": "healthy" if bot_status == "online" else "starting",
+        "timestamp": discord.utils.utcnow().isoformat() if bot.is_ready() else "unknown",
+        "guilds": guild_count,
+        "latency": latency
+    }
+    
+    status_code = 200 if bot_status == "online" else 503
+    return jsonify(health_data), status_code
 
 @app.route('/versions')
 def versions_api():
@@ -159,11 +196,22 @@ def versions_api():
     else:
         return jsonify({"error": "No version data available"}), 503
 
+# Global error handler
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({"error": "Internal server error", "message": str(error)}), 500
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({"error": "Endpoint not found"}), 404
+
 if __name__ == '__main__':
     # Start Discord bot in a separate thread
+    print("🚀 Starting Discord bot in background thread...")
     bot_thread = threading.Thread(target=run_discord_bot, daemon=True)
     bot_thread.start()
     
     # Start Flask app
     port = int(os.environ.get('PORT', 10000))
+    print(f"🌐 Starting Flask app on port {port}...")
     app.run(host='0.0.0.0', port=port, debug=False)
