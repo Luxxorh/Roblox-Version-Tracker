@@ -5,6 +5,7 @@ import asyncio
 import json
 from datetime import datetime, timezone
 import re
+import math
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -185,14 +186,34 @@ async def on_ready():
 @bot.command(name='setchannel')
 @is_administrator()
 async def set_channel(ctx):
+    """Set the current channel for automatic update notifications (Admin Only)"""
     version_bot.update_channel_id = ctx.channel.id
-    embed = discord.Embed(title="✅ Update Channel Set", description=f"Automatic update notifications will be sent to this channel: {ctx.channel.mention}", color=0x00ff00)
+    embed = discord.Embed(
+        title="✅ Update Channel Set",
+        description=f"Automatic update notifications will be sent to this channel: {ctx.channel.mention}",
+        color=0x00ff00,
+        timestamp=datetime.now(timezone.utc)
+    )
     await ctx.send(embed=embed)
+    print(f"📢 Update channel set to: #{ctx.channel.name} (ID: {ctx.channel.id})")
 
 @bot.command(name='versions')
 @is_administrator()
 async def versions(ctx):
+    """Get current Roblox versions for all platforms (Admin Only)"""
+    if not ctx.channel.permissions_for(ctx.guild.me).send_messages:
+        try:
+            await ctx.author.send("I don't have permission to send messages in that channel.")
+        except:
+            pass
+        return
+    
+    if not ctx.channel.permissions_for(ctx.guild.me).embed_links:
+        await ctx.send("I need the 'Embed Links' permission to display version information properly.")
+        return
+
     data = await version_bot.fetch_versions()
+    
     if data:
         embed = version_bot.create_versions_embed(data)
         await ctx.send(embed=embed)
@@ -202,25 +223,37 @@ async def versions(ctx):
 @bot.command(name='windows') 
 @is_administrator()
 async def windows_update(ctx):
+    """Get current Windows Roblox version (Admin Only)"""
     await send_platform_current_version(ctx, 'Windows')
 
 @bot.command(name='mac')
 @is_administrator()
 async def mac_update(ctx):
+    """Get current Mac Roblox version (Admin Only)"""
     await send_platform_current_version(ctx, 'Mac')
 
 @bot.command(name='android')
 @is_administrator()
 async def android_update(ctx):
+    """Get current Android Roblox version (Admin Only)"""
     await send_platform_current_version(ctx, 'Android')
 
 @bot.command(name='ios')
 @is_administrator()
 async def ios_update(ctx):
+    """Get current iOS Roblox version (Admin Only)"""
     await send_platform_current_version(ctx, 'iOS')
 
 async def send_platform_current_version(ctx, platform):
+    """Helper function to send platform-specific current version embeds"""
+    if not ctx.channel.permissions_for(ctx.guild.me).send_messages:
+        return
+    if not ctx.channel.permissions_for(ctx.guild.me).embed_links:
+        await ctx.send("I need the 'Embed Links' permission to display version information properly.")
+        return
+
     data = await version_bot.fetch_versions()
+    
     if data:
         embed = version_bot.create_current_version_embed(data, platform)
         await ctx.send(embed=embed)
@@ -230,68 +263,170 @@ async def send_platform_current_version(ctx, platform):
 @bot.command(name='status')
 @is_administrator()
 async def status(ctx):
-    embed = discord.Embed(title="🤖 Bot Status", color=0x3498db)
+    """Check bot status and update configuration (Admin Only)"""
+    embed = discord.Embed(
+        title="🤖 Bot Status & Configuration",
+        color=0x3498db,
+        timestamp=datetime.now(timezone.utc)
+    )
     
     if version_bot.last_data:
-        embed.add_field(name="📊 Current Versions", value=f"**Windows:** `{version_bot.last_data['Windows']}`\n**Android:** `{version_bot.last_data['Android']}`", inline=False)
+        embed.add_field(
+            name="📊 Current Versions",
+            value=f"**Windows:** `{version_bot.last_data['Windows']}`\n**Android:** `{version_bot.last_data['Android']}`\n**Last Check:** Automatic monitoring",
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="📊 Current Data",
+            value="No data fetched yet",
+            inline=False
+        )
     
-    update_channel_info = "Not set"
+    update_channel_info = "Not set - Use `!setchannel`"
     if version_bot.update_channel_id:
         channel = bot.get_channel(version_bot.update_channel_id)
         if channel:
-            update_channel_info = f"{channel.mention}"
+            update_channel_info = f"{channel.mention} (`{version_bot.update_channel_id}`)"
+        else:
+            update_channel_info = f"Channel not found (`{version_bot.update_channel_id}`)"
     
-    embed.add_field(name="🔄 Auto-Update", value=f"**Channel:** {update_channel_info}\n**Interval:** 1 minute", inline=False)
-    embed.add_field(name="⚡ System", value=f"**Latency:** {round(bot.latency * 1000)}ms\n**Guilds:** {len(bot.guilds)}", inline=False)
+    # Safely handle latency - FIXED NaN issue
+    try:
+        latency = bot.latency
+        if latency is None or math.isnan(latency):
+            latency_display = "Calculating..."
+        else:
+            latency_display = f"{round(latency * 1000)}ms"
+    except (TypeError, ValueError):
+        latency_display = "Unknown"
+    
+    embed.add_field(
+        name="🔄 Auto-Update Settings",
+        value=f"**Update Channel:** {update_channel_info}\n**Check Interval:** 1 minute\n**Mode:** Update detection only",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="⚡ System Info",
+        value=f"**Latency:** {latency_display}\n**Guilds:** {len(bot.guilds)}",
+        inline=False
+    )
     
     await ctx.send(embed=embed)
 
 @tasks.loop(minutes=1)
 async def auto_check_updates():
+    """Automatically check for updates and send update detection embeds"""
     try:
         data = await version_bot.fetch_versions()
         if data:
+            # Check for changes
             changed_platforms = version_bot.get_changed_platforms(data)
             
             if changed_platforms and version_bot.update_channel_id:
+                # Get the update channel
                 update_channel = bot.get_channel(version_bot.update_channel_id)
                 
-                if update_channel:
+                if update_channel and update_channel.permissions_for(update_channel.guild.me).send_messages:
+                    
+                    # Send update detection embeds for each changed platform
                     for platform in changed_platforms:
                         old_version = version_bot.last_data.get(platform)
                         embed = version_bot.create_update_embed(data, platform, old_version)
                         await update_channel.send(embed=embed)
                         print(f"🚀 Update detected for {platform}: {old_version} → {data[platform]}")
+                        
+                        # Small delay to avoid rate limiting
                         await asyncio.sleep(1)
                 
+                # Update last data
                 version_bot.last_data = data
                 
             elif changed_platforms:
+                # Changes detected but no channel set
                 print(f"🔔 Updates detected for {changed_platforms} but no update channel configured")
                 version_bot.last_data = data
                 
             else:
-                print("✅ No updates detected")
+                # No changes detected
+                print("✅ No updates detected in auto-check")
                 
+        else:
+            print("❌ Failed to fetch data for auto-update check")
+            
     except Exception as e:
         print(f"Error in auto_check_updates: {e}")
 
 @tasks.loop(minutes=1)
 async def auto_update_presence():
+    """Auto-update bot presence only when data changes"""
     try:
         data = await version_bot.fetch_versions()
-        if data and version_bot.has_data_changed(data):
-            version_bot.current_presence_version = data['Android']
-            activity = discord.Activity(type=discord.ActivityType.watching, name=f"Roblox v{data['Android']} | Auto-Update")
-            await bot.change_presence(activity=activity)
+        if data:
+            # Check if Android version has changed
+            if version_bot.has_data_changed(data):
+                old_version = version_bot.current_presence_version
+                version_bot.current_presence_version = data['Android']
+                
+                # Update bot presence with latest Android version
+                activity = discord.Activity(
+                    type=discord.ActivityType.watching,
+                    name=f"Roblox v{data['Android']} | Auto-Update"
+                )
+                await bot.change_presence(activity=activity)
+                
+                print(f"🔄 Presence updated: Roblox v{old_version} → v{data['Android']}")
+        else:
+            print("❌ Failed to fetch data for presence check")
     except Exception as e:
         print(f"Error in auto_update_presence: {e}")
 
 @auto_check_updates.before_loop
 @auto_update_presence.before_loop
 async def before_tasks():
+    """Wait until the bot is ready before starting the task"""
     await bot.wait_until_ready()
 
+# Error handling for non-admin users
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CheckFailure):
+        embed = discord.Embed(
+            title="❌ Access Denied",
+            description="This bot is restricted to **Administrators** only.",
+            color=0xff0000
+        )
+        embed.add_field(
+            name="Required Permissions",
+            value="You need **Administrator** permissions in this server to use bot commands.",
+            inline=False
+        )
+        
+        try:
+            await ctx.send(embed=embed)
+        except:
+            try:
+                await ctx.author.send(embed=embed)
+            except:
+                pass
+    
+    elif isinstance(error, commands.CommandInvokeError):
+        if "Missing Permissions" in str(error):
+            try:
+                await ctx.author.send("I don't have the necessary permissions to execute that command.")
+            except:
+                pass
+        else:
+            print(f"Command error: {error}")
+    elif isinstance(error, commands.CommandNotFound):
+        if ctx.author.guild_permissions.administrator:
+            await ctx.send("Command not found. Available commands: `!versions`, `!setchannel`, `!windows`, `!mac`, `!android`, `!ios`, `!status`")
+    else:
+        print(f"Unexpected error: {error}")
+
+# Prevent non-admins from using any commands
 @bot.check
 async def global_check(ctx):
+    """Global check that applies to all commands"""
     return ctx.author.guild_permissions.administrator
