@@ -5,8 +5,12 @@ import asyncio
 import discord
 from bot import bot, version_bot
 import math
+import time
 
 app = Flask(__name__)
+
+# Store bot startup time for uptime calculation
+bot_start_time = time.time()
 
 # HTML template for the status page
 STATUS_HTML = """
@@ -41,6 +45,7 @@ STATUS_HTML = """
         }
         .online { color: #4CAF50; }
         .offline { color: #f44336; }
+        .connecting { color: #ffa500; }
         h1, h2 { text-align: center; }
         .version-info { 
             display: grid; 
@@ -53,9 +58,6 @@ STATUS_HTML = """
             padding: 15px;
             border-radius: 8px;
             text-align: center;
-        }
-        .loading {
-            color: #ffa500;
         }
     </style>
 </head>
@@ -70,7 +72,7 @@ STATUS_HTML = """
                 {% elif bot_status == "offline" %}
                     <span class="offline">🔴 OFFLINE</span>
                 {% else %}
-                    <span class="loading">🟡 CONNECTING...</span>
+                    <span class="connecting">🟡 CONNECTING...</span>
                 {% endif %}
             </h2>
             <p><strong>Guilds Serving:</strong> {{ guild_count }}</p>
@@ -101,6 +103,10 @@ STATUS_HTML = """
             <p><strong>Check Interval:</strong> 1 minute</p>
             <p><strong>Last Check:</strong> {{ last_check }}</p>
         </div>
+
+        <div class="status-card">
+            <p><strong>Note:</strong> The bot may take 30-60 seconds to fully connect after deployment.</p>
+        </div>
     </div>
 </body>
 </html>
@@ -114,6 +120,7 @@ def run_discord_bot():
         return
     
     try:
+        print("🚀 Starting Discord bot...")
         bot.run(token)
     except Exception as e:
         print(f"❌ Discord bot error: {e}")
@@ -121,26 +128,44 @@ def run_discord_bot():
 def get_bot_status():
     """Safely get bot status and latency"""
     try:
-        if not bot.is_ready():
-            return "connecting", 0, 0
+        # Check if bot is ready and connected
+        if not hasattr(bot, 'is_ready') or not bot.is_ready():
+            return "connecting", 0, "Unknown"
         
-        # Safely handle latency (could be NaN or float)
-        latency = bot.latency
+        # Safely handle latency
+        latency = getattr(bot, 'latency', None)
         if latency is None or math.isnan(latency):
             latency_ms = "Calculating..."
         else:
             latency_ms = f"{round(latency * 1000)}ms"
         
-        return "online", len(bot.guilds), latency_ms
+        guild_count = len(bot.guilds) if hasattr(bot, 'guilds') else 0
+        
+        return "online", guild_count, latency_ms
         
     except Exception as e:
         print(f"Error getting bot status: {e}")
         return "offline", 0, "Unknown"
 
+def format_uptime(seconds):
+    """Format uptime in a human readable way"""
+    if seconds < 60:
+        return f"{int(seconds)} seconds"
+    elif seconds < 3600:
+        return f"{int(seconds // 60)} minutes"
+    elif seconds < 86400:
+        return f"{int(seconds // 3600)} hours"
+    else:
+        return f"{int(seconds // 86400)} days"
+
 @app.route('/')
 def index():
     """Main status page"""
     bot_status, guild_count, latency = get_bot_status()
+    
+    # Calculate uptime
+    uptime_seconds = time.time() - bot_start_time
+    uptime = format_uptime(uptime_seconds)
     
     # Get version data
     versions = {}
@@ -167,10 +192,10 @@ def index():
         bot_status=bot_status,
         guild_count=guild_count,
         latency=latency,
-        uptime="Running",
+        uptime=uptime,
         versions=versions,
         update_channel=update_channel,
-        last_check="Active" if bot_status == "online" else "Inactive"
+        last_check="Active" if bot_status == "online" else "Waiting for connection"
     )
 
 @app.route('/health')
@@ -182,7 +207,8 @@ def health():
         "status": "healthy" if bot_status == "online" else "starting",
         "timestamp": discord.utils.utcnow().isoformat() if bot.is_ready() else "unknown",
         "guilds": guild_count,
-        "latency": latency
+        "latency": latency,
+        "uptime_seconds": time.time() - bot_start_time
     }
     
     status_code = 200 if bot_status == "online" else 503
@@ -194,7 +220,7 @@ def versions_api():
     if version_bot.last_data:
         return jsonify(version_bot.last_data)
     else:
-        return jsonify({"error": "No version data available"}), 503
+        return jsonify({"error": "No version data available", "status": "fetching"}), 503
 
 # Global error handler
 @app.errorhandler(500)
@@ -205,13 +231,13 @@ def internal_error(error):
 def not_found(error):
     return jsonify({"error": "Endpoint not found"}), 404
 
-if __name__ == '__main__':
-    # Start Discord bot in a separate thread
-    print("🚀 Starting Discord bot in background thread...")
-    bot_thread = threading.Thread(target=run_discord_bot, daemon=True)
-    bot_thread.start()
-    
-    # Start Flask app
-    port = int(os.environ.get('PORT', 10000))
-    print(f"🌐 Starting Flask app on port {port}...")
-    app.run(host='0.0.0.0', port=port, debug=False)
+# Initialize the bot when the app starts
+print("🌐 Initializing Flask app with Discord bot...")
+
+# Start Discord bot in a separate thread
+print("🚀 Starting Discord bot in background thread...")
+bot_thread = threading.Thread(target=run_discord_bot, daemon=True)
+bot_thread.start()
+
+print("✅ Flask app and Discord bot started successfully!")
+print("📊 Bot status will update automatically as the connection establishes")
