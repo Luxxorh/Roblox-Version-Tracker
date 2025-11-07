@@ -12,6 +12,9 @@ intents.message_content = True
 intents.guilds = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
+# Logo URL for embeds
+LOGO_URL = "https://image2url.com/images/1762473325035-beafec5a-7150-4f1e-ae4c-7bdd43c18537.png"
+
 class RobloxVersionBot:
     def __init__(self):
         self.api_url = "https://weao.xyz/api/versions/current"
@@ -80,33 +83,6 @@ class RobloxVersionBot:
         else:
             return None
 
-    def create_current_version_embed(self, data, platform):
-        """Create a simple embed showing current version for a platform"""
-        platform_info = {
-            'Windows': {'emoji': '🪟', 'hash': data['Windows'], 'date': data['WindowsDate'], 'color': 0x0078d7},
-            'Mac': {'emoji': '🍎', 'hash': data['Mac'], 'date': data['MacDate'], 'color': 0x999999},
-            'Android': {'emoji': '🤖', 'hash': data['Android'], 'date': data['AndroidDate'], 'color': 0x3ddc84},
-            'iOS': {'emoji': '📱', 'hash': data['iOS'], 'date': data['iOSDate'], 'color': 0x007aff}
-        }
-        
-        platform_data = platform_info[platform]
-        
-        embed = discord.Embed(
-            title=f"{platform_data['emoji']} Current Roblox Version - {platform}",
-            color=platform_data['color'],
-            timestamp=datetime.now(timezone.utc)
-        )
-        
-        embed.add_field(name="🔑 Current Version:", value=f"`{platform_data['hash']}`", inline=False)
-        embed.add_field(name="📅 Last Updated:", value=self.format_date(platform_data['date']), inline=False)
-        
-        download_link = self.get_download_link(platform, platform_data['hash'])
-        if download_link:
-            embed.add_field(name="⬇️ Download:", value=f"[Click to download]({download_link})", inline=False)
-        
-        embed.set_footer(text="Powered by WEAO API | Admin Only")
-        return embed
-
     def create_update_embed(self, data, platform, old_version):
         """Create an update detection embed"""
         platform_info = {
@@ -115,31 +91,60 @@ class RobloxVersionBot:
             'Android': {'emoji': '🤖', 'hash': data['Android'], 'date': data['AndroidDate'], 'color': 0x3ddc84},
             'iOS': {'emoji': '📱', 'hash': data['iOS'], 'date': data['iOSDate'], 'color': 0x007aff}
         }
-        
+
         platform_data = platform_info[platform]
-        
-        embed = discord.Embed(
-            title="🚀 A future Roblox update has been detected!",
-            description="This is a future update, no need to worry about Roblox exploits being patched yet.\n\u200b",
-            color=platform_data['color']
-        )
-        
-        embed.add_field(name="📋 Platform:", value=f"**{platform}** {platform_data['emoji']}", inline=True)
-        embed.add_field(name="🔑 Hash:", value=f"`{platform_data['hash']}`", inline=True)
-        embed.add_field(name="📅 Date:", value=self.format_date(platform_data['date']), inline=False)
-        
         download_link = self.get_download_link(platform, platform_data['hash'])
+
+        embed = discord.Embed(
+            title="🚀 An exploit update has been detected!",
+            description="This is a future update. No need to worry about Roblox exploits being patched yet.\n\u200b",
+            color=platform_data['color'],
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.set_thumbnail(url=LOGO_URL)
+        embed.add_field(name="📋 Platform", value=f"**{platform}** {platform_data['emoji']}", inline=True)
+        embed.add_field(name="🔑 New Version", value=f"`{platform_data['hash']}`", inline=True)
+        embed.add_field(name="📅 Date", value=self.format_date(platform_data['date']), inline=False)
         if download_link:
             embed.add_field(name="⬇️ Download", value=f"[Click to download]({download_link})", inline=False)
-        
         embed.add_field(name="🔄 Change Detected", value=f"**Previous version:** `{old_version}`\n**New version:** `{platform_data['hash']}`", inline=False)
-        
-        embed.set_footer(text="Powered by WEAO, The #1 Roblox exploit status tracker | Channel LIVE")
+        embed.set_footer(text="Powered by WEAO, The #1 Roblox exploit status tracker")
+        return embed
+
+    def create_current_version_embed(self, data, platform):
+        """Create a simple embed showing current version for a platform"""
+        platform_info = {
+            'Windows': {'emoji': '🪟', 'hash': data['Windows'], 'date': data['WindowsDate'], 'color': 0x0078d7},
+            'Mac': {'emoji': '🍎', 'hash': data['Mac'], 'date': data['MacDate'], 'color': 0x999999},
+            'Android': {'emoji': '🤖', 'hash': data['Android'], 'date': data['AndroidDate'], 'color': 0x3ddc84},
+            'iOS': {'emoji': '📱', 'hash': data['iOS'], 'date': data['iOSDate'], 'color': 0x007aff}
+        }
+
+        platform_data = platform_info[platform]
+        download_link = self.get_download_link(platform, platform_data['hash'])
+
+        embed = discord.Embed(
+            title=f"{platform_data['emoji']} Current Roblox Version - {platform}",
+            description="Latest live version detected.\n\u200b",
+            color=platform_data['color'],
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.set_thumbnail(url=LOGO_URL)
+        embed.add_field(name="🔑 Current Version", value=f"`{platform_data['hash']}`", inline=True)
+        embed.add_field(name="📅 Last Updated", value=self.format_date(platform_data['date']), inline=True)
+        if download_link:
+            embed.add_field(name="⬇️ Download", value=f"[Click to download]({download_link})", inline=False)
+        embed.set_footer(text="Powered by WEAO API | Admin Only")
         return embed
 
     def create_versions_embed(self, data):
         """Create a comprehensive embed showing all platforms"""
-        embed = discord.Embed(title="📊 All Roblox Versions", color=0x5865F2, timestamp=datetime.now(timezone.utc))
+        embed = discord.Embed(
+            title="📊 All Roblox Versions", 
+            color=0x5865F2, 
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.set_thumbnail(url=LOGO_URL)
         
         platforms = [
             ('Windows', '🪟', data['Windows'], data['WindowsDate']),
@@ -194,6 +199,7 @@ async def set_channel(ctx):
         color=0x00ff00,
         timestamp=datetime.now(timezone.utc)
     )
+    embed.set_thumbnail(url=LOGO_URL)
     await ctx.send(embed=embed)
     print(f"📢 Update channel set to: #{ctx.channel.name} (ID: {ctx.channel.id})")
 
@@ -269,6 +275,7 @@ async def status(ctx):
         color=0x3498db,
         timestamp=datetime.now(timezone.utc)
     )
+    embed.set_thumbnail(url=LOGO_URL)
     
     if version_bot.last_data:
         embed.add_field(
@@ -397,6 +404,7 @@ async def on_command_error(ctx, error):
             description="This bot is restricted to **Administrators** only.",
             color=0xff0000
         )
+        embed.set_thumbnail(url=LOGO_URL)
         embed.add_field(
             name="Required Permissions",
             value="You need **Administrator** permissions in this server to use bot commands.",
